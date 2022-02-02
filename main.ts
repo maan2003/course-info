@@ -1,9 +1,13 @@
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'fs';
 
+const CIVIL = false;
 
 const HEADERS =
     ["course content", "course learning objectives", "course objectives", "course outcomes", "books", "reference books"];
+if (CIVIL) {
+    HEADERS.push("prerequisites");
+}
 
 const COURSE_INFO_HEADERS = [
     "course title",
@@ -35,7 +39,27 @@ class Lexer {
         return null;
     }
 
+    visitCourseHead2(table: Element) {
+        let cells = $$('th,td', table);
+        if (cells.length != 5) {
+            return;
+        }
+        let obj: Partial<Course> = {};
+        obj["course code"] = cells[0]?.textContent?.trim();
+        obj["course title"] = cells[1]?.textContent?.trim();
+        obj["course type"] = cells[2]?.textContent?.trim();
+        obj["number of credits"] = cells[4]?.textContent?.trim();
+        if (!/[A-Z]{4}\d{2}/.test(obj["course code"])) {
+            console.error(`Invalid course code: ${obj["course code"]}`);
+            return;
+        }
+        this.tokens.push({ kind: 'courseHeader', value: obj });
+    }
+
     visitCourseHead(table: Element) {
+        if (CIVIL) {
+            return this.visitCourseHead2(table);
+        }
         let cells = $$('th,td', table);
 
         let obj: { [key: string]: string } = {};
@@ -52,18 +76,15 @@ class Lexer {
                 curr = null;
             }
         }
-        for (const h of COURSE_INFO_HEADERS) {
-            if (obj[h] == undefined) {
-                console.error(cells.map(c => c.textContent.trim()));
-                console.error(`Missing ${h}`);
-                console.error(obj);
-            }
-        }
-        if (this.currentToken && this.currentToken.kind == "text" && this.currentToken.value.toLowerCase() == obj["course title"].trim().toLowerCase()) {
+        if (this.currentToken && this.currentToken.kind == "text" && this.currentToken.value.toLowerCase() == obj["course title"]?.trim()?.toLowerCase()) {
             // remove the course title heading
             this.tokens.pop();
         }
-        this.tokens.push({ kind: 'courseHeader', value: obj });
+        if (this.currentToken && this.currentToken.kind == "courseHeader") {
+            Object.assign(this.currentToken.value, obj);
+        } else {
+            this.tokens.push({ kind: 'courseHeader', value: obj });
+        }
     }
 
     visitText(e: Element) {
@@ -97,10 +118,28 @@ class Lexer {
                 if (text.toLowerCase().startsWith(header)) {
                     text = text.substring(header.length).trim();
                     this.tokens.push({ kind: 'infoHeader', value: header });
-                    if (text == ":" || text == "") {
+                    if (text.startsWith("s")) {
+                        text = text.substring(1).trim();
+                    }
+                    if (text.startsWith(":")) {
+                        text = text.substring(1).trim();
+                    }
+                    if (text == "") {
                         return;
                     }
                     level = 2;
+                    if (CIVIL && header == "prerequisites") {
+                        let idx = text.toLowerCase().indexOf("course");
+                        if (idx != -1) {
+                            let value = text.substring(0, idx).trim();
+                            this.tokens.push({ kind: 'text', value, level });
+                            text = text.substring(idx).trim();
+                            let newElem = document.createElement("h2");
+                            newElem.innerHTML = text;
+                            this.visit(newElem);
+                            return;
+                        }
+                    }
                     break;
                 }
             }
@@ -151,7 +190,7 @@ class Parser {
 
     endHeader() {
         if (this.curr_header != null && this.curr_text != "") {
-            this.curr_course[this.curr_header] = this.curr_text;
+            this.curr_course[this.curr_header] = this.curr_text.trim();
             this.curr_header = null;
             this.curr_text = "";
             this.in_list = 0;
@@ -169,6 +208,19 @@ class Parser {
     eat(token: Token) {
         switch (token.kind) {
             case "courseHeader":
+                if (CIVIL && token.value["prerequisites"] == undefined) {
+                    token.value["prerequisites"] = "";
+                }
+                if (token.value["course code"] == undefined) {
+                    return;
+                }
+                for (const h of COURSE_INFO_HEADERS) {
+                    if (token.value[h] == undefined) {
+                        console.error(`Missing ${h}`);
+                        console.error(token.value);
+                    }
+                }
+                token.value["branch"] = BRANCH;
                 this.endCourse();
                 this.curr_course = token.value;
                 break;
@@ -177,7 +229,7 @@ class Parser {
                 this.curr_header = token.value;
                 break;
             case "text":
-                const is_unit = /^unit [iv]+/i.test(token.value);
+                const is_unit = /^unit[ -ivx0-9]+/i.test(token.value);
                 if (is_unit && this.curr_header != "course content") {
                     this.endHeader();
                     this.curr_header = "course content";
@@ -248,6 +300,7 @@ function ansectors(element: Element): Element[] {
 
 // node only stuff
 let file = process.argv[2];
+let BRANCH = file.split(".")[0];
 let fileText = readFileSync(file, 'utf8');
 
 let offset = parseInt(process.argv[3]);
