@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@types/jsdom": "^16.2.14",
+    "@types/node": "^17.0.14",
+    "jsdom": "^19.0.0"
+  }
+}
