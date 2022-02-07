@@ -1,7 +1,11 @@
-import { JSDOM } from 'jsdom';
-import { readFileSync } from 'fs';
+#!/usr/bin/env -S deno run --allow-read --allow-ffi --no-check --unstable --allow-env
 
-const CIVIL = false;
+import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.21-alpha/deno-dom-native.ts";
+
+let CIVIL = false;
+let FILE = Deno.args[0];
+let BRANCH = FILE.split(".")[0].split("/").pop();
+let OFFSET = parseInt(Deno.args[1]);
 
 const HEADERS = [
     ["course content", "course content"],
@@ -282,9 +286,9 @@ class Parser {
     }
 }
 
-function main() {
+function run() {
     let tables = $$("table");
-    let curr = ansectors(tables[offset]).pop();
+    let curr: Element | null = ansectors(tables[OFFSET]).pop()!;
     let lexer = new Lexer();
     while (curr != null) {
         lexer.visit(curr);
@@ -299,34 +303,33 @@ function main() {
     console.log(JSON.stringify(courses, null, 2));
 }
 
-function $$(selector: string, parent: Element | undefined = undefined): Element[] {
+function $$(
+    selector: string,
+    parent: Element | undefined = undefined,
+): Element[] {
     let elements;
     if (parent) {
         elements = parent.querySelectorAll(selector);
     } else {
         elements = document.querySelectorAll(selector);
     }
-    return Array.from(elements);
+    return Array.from(elements).filter((x) => x instanceof Element) as Element[];
 }
 
 // NOTE: also includes self
 function ansectors(element: Element): Element[] {
     let ancestors = [];
-    let parent = element;
-    while (parent && parent.tagName !== 'BODY') {
+    let parent: Element | null = element;
+    while (parent !== null && parent.tagName !== "BODY") {
         ancestors.push(parent);
         parent = parent.parentElement;
     }
     return ancestors;
 }
 
-// node only stuff
-let file = process.argv[2];
-let BRANCH = file.split(".")[0].split("/").pop();
-let fileText = readFileSync(file, 'utf8');
-
-let offset = parseInt(process.argv[3]);
-
-let { window } = new JSDOM(fileText, { runScripts: "outside-only" });
-let document = window.document;
-main();
+let fileText = await Deno.readTextFile(FILE);
+let document = new DOMParser().parseFromString(
+    fileText,
+    "text/html",
+)!;
+run();
