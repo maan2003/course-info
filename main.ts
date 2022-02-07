@@ -3,10 +3,20 @@ import { readFileSync } from 'fs';
 
 const CIVIL = false;
 
-const HEADERS =
-    ["course content", "course learning objectives", "course objectives", "course outcomes", "books", "reference books"];
+const HEADERS = [
+    ["course content", "course content"],
+    ["syllabus", "course content"],
+    ["course learning objective", "course objective"],
+    ["course outcome", "course outcome"],
+    ["book", "books"],
+    ["textbook", "books"],
+    ["reference book", "books"],
+    ["text book", "books"],
+    ["suggested book", "books"],
+];
+
 if (CIVIL) {
-    HEADERS.push("prerequisites");
+    HEADERS.push(["prerequisites", "prerequisites"]);
 }
 
 const COURSE_INFO_HEADERS = [
@@ -115,9 +125,9 @@ class Lexer {
 
         if (text.length > 0) {
             for (let header of HEADERS) {
-                if (text.toLowerCase().startsWith(header)) {
-                    text = text.substring(header.length).trim();
-                    this.tokens.push({ kind: 'infoHeader', value: header });
+                if (text.toLowerCase().startsWith(header[0])) {
+                    text = text.substring(header[0].length).trim();
+                    this.tokens.push({ kind: 'infoHeader', value: header[1] });
                     if (text.startsWith("s")) {
                         text = text.substring(1).trim();
                     }
@@ -128,7 +138,7 @@ class Lexer {
                         return;
                     }
                     level = 2;
-                    if (CIVIL && header == "prerequisites") {
+                    if (CIVIL && header[0] == "prerequisites") {
                         let idx = text.toLowerCase().indexOf("course");
                         if (idx != -1) {
                             let value = text.substring(0, idx).trim();
@@ -200,6 +210,18 @@ class Parser {
     endCourse() {
         if (this.curr_course != null) {
             this.endHeader();
+            let headers = new Set(HEADERS.map(x => x[1]))
+            let warning = false;
+            for (let h of headers) {
+                if (this.curr_course[h] === undefined) {
+                    console.warn(`Missing header ${h}`);
+                    warning = true;
+                }
+            }
+            if (warning) {
+                console.warn(this.curr_course);
+                console.warn();
+            }
             this.courses.push(this.curr_course);
             this.curr_course = null;
         }
@@ -300,7 +322,7 @@ function ansectors(element: Element): Element[] {
 
 // node only stuff
 let file = process.argv[2];
-let BRANCH = file.split(".")[0];
+let BRANCH = file.split(".")[0].split("/").pop();
 let fileText = readFileSync(file, 'utf8');
 
 let offset = parseInt(process.argv[3]);
